@@ -1,5 +1,4 @@
-// Centralise l'adresse du backend et les types des données échangées avec l'application.
-// Ce fichier décrit les contrats de données ; les appels HTTP sont définis ailleurs.
+// Centralise l'adresse du backend ainsi que les types et les fonctions d'accès à l'API.
 const API_BASE = "http://localhost:8000/api";
 
 // Données renvoyées après une connexion réussie.
@@ -107,4 +106,72 @@ export interface ProfileStats {
   totalSessions: { value: string; unit: string };
   caloriesBurned: { value: string; unit: string };
   restDays: { value: string; unit: string };
+}
+
+
+
+////////////
+/////////////////
+
+// Authentifie l'utilisateur auprès du backend et renvoie son jeton ainsi que son identifiant.
+export async function loginUser(
+  username: string,
+  password: string
+): Promise<LoginResponse> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+  } catch {
+    // Distingue une panne de connexion d'un refus d'authentification.
+    throw new Error("Serveur indisponible. Assurez-vous que le backend est démarré.");
+  }
+  if (!res.ok) throw new Error("Nom d'utilisateur ou mot de passe incorrect.");
+  return res.json();
+}
+
+// Récupère les informations du profil connecté ; le jeton sert à autoriser la requête.
+export async function getUserInfo(token: string): Promise<UserInfoResponse> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/user-info`, {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  } catch {
+    throw new Error("Serveur indisponible. Assurez-vous que le backend est démarré.");
+  }
+  // Signale séparément une session invalide afin que l'application puisse demander une reconnexion.
+  if (res.status === 401) throw new Error("Session expirée. Veuillez vous reconnecter.");
+  if (!res.ok) throw new Error("Erreur lors du chargement des données utilisateur.");
+  return res.json();
+}
+
+// Charge les activités de l'utilisateur pour la période délimitée par les deux semaines fournies.
+export async function getUserActivity(
+  token: string,
+  startWeek: string,
+  endWeek: string
+): Promise<ActivityEntry[]> {
+  const params = new URLSearchParams({ startWeek, endWeek });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/user-activity?${params}`, {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  } catch {
+    throw new Error("Serveur indisponible. Assurez-vous que le backend est démarré.");
+  }
+  // Vérifie l'authentification avant de traiter les autres erreurs de l'API.
+  if (res.status === 401) throw new Error("Session expirée. Veuillez vous reconnecter.");
+  if (!res.ok) throw new Error("Erreur lors du chargement des activités.");
+  return res.json();
 }
