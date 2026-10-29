@@ -331,3 +331,103 @@ export function transformToWeeklyBpm(activities: ActivityEntry[]): WeeklyBpmData
         })), // Renvoie sept entrées vides pour conserver la structure du graphique.
       };
 }
+
+
+
+export function transformToWeeklyRuns(
+  activities: ActivityEntry[],
+  // Utilise par défaut la dernière date enregistrée, ou aujourd'hui si aucune activité n'existe.
+  endDate = getLatestActivityDate(activities) ?? new Date().toISOString().split("T")[0],
+  // Définit à sept séances l'objectif hebdomadaire lorsque l'appelant n'en précise pas.
+  objective = 7
+): WeeklyRunsData {
+  const startDate = addDays(endDate, -6); // Remonte de six jours pour former une période de sept jours, date de fin incluse.
+  const done = activities.filter(
+    (entry) => entry.date >= startDate && entry.date <= endDate // Ne conserve que les séances comprises dans cette semaine.
+  ).length; // Compte les séances retenues pour les comparer à l'objectif.
+  return {
+    objective, // Renvoie le nombre de séances visé.
+    done, // Renvoie le nombre de séances réellement effectuées.
+    dateRange: `Du ${formatDateNumeric(startDate)} au ${formatDateNumeric(endDate)}`, // Présente les bornes en format français.
+  };
+}
+
+export function transformToWeeklyActivityStats(
+  activities: ActivityEntry[],
+  // Choisit par défaut la date de la dernière activité, ou la date du jour si la liste est vide.
+  endDate = getLatestActivityDate(activities) ?? new Date().toISOString().split("T")[0]
+): WeeklyActivityStats {
+  const startDate = addDays(endDate, -6); // Calcule le début de la période hebdomadaire de sept jours.
+  const period = activities.filter(
+    (entry) => entry.date >= startDate && entry.date <= endDate // Isole les séances effectuées pendant cette période.
+  );
+  const duration = period.reduce((sum, entry) => sum + entry.duration, 0); // Additionne la durée de toutes les séances retenues.
+  const distance = period.reduce((sum, entry) => sum + entry.distance, 0); // Additionne la distance parcourue pendant la semaine.
+  return {
+    dateRange: `Du ${formatDateNumeric(startDate)} au ${formatDateNumeric(endDate)}`, // Formate la période pour son affichage.
+    duration: {
+      value: String(duration), // Convertit le total en texte pour l'interface.
+      unit: "minutes", // Indique l'unité utilisée pour la durée.
+      valueColor: "#0B23F4", // Définit la couleur de la valeur dans la carte de statistiques.
+      unitColor: "#B6BDFC", // Définit la couleur de l'unité affichée.
+    },
+    distance: {
+      value: String(Math.round(distance * 10) / 10), // Arrondit le total au dixième puis le convertit en texte.
+      unit: "kilomètres", // Indique l'unité utilisée pour la distance.
+      valueColor: "#DF392B", // Définit la couleur de la valeur dans la carte.
+      unitColor: "#FCC1B6", // Définit la couleur de l'unité affichée.
+    },
+  };
+}
+
+function formatGender(gender: string): string {
+  const value = gender.toLowerCase(); // Normalise la casse pour accepter les variantes courantes.
+  if (value === "female" || value === "femme") return "Femme"; // Uniformise les deux formes féminines en français.
+  if (value === "male" || value === "homme") return "Homme"; // Uniformise les deux formes masculines en français.
+  return gender || "—"; // Conserve toute autre valeur ou affiche un tiret si elle est vide.
+}
+
+export function transformUserDisplay(profile: UserProfile): UserDisplay {
+  return {
+    name: `${profile.firstName} ${profile.lastName}`, // Assemble le prénom et le nom pour l'affichage.
+    memberSince: formatDateFrFull(profile.createdAt), // Convertit la date d'inscription en date française lisible.
+    age: profile.age, // Transmet l'âge sans modification.
+    gender: formatGender(profile.gender), // Traduit et uniformise la valeur du genre.
+    height: `${profile.height}cm`, // Ajoute l'unité à la taille pour l'interface.
+    weight: `${profile.weight}kg`, // Ajoute l'unité au poids pour l'interface.
+    profilePicture: profile.profilePicture ?? "", // Utilise la photo fournie ou une chaîne vide si elle est absente.
+  };
+}
+
+export function transformProfileStats(
+  activities: ActivityEntry[],
+  createdAt?: string
+): ProfileStats {
+  const today = new Date().toISOString().split("T")[0]; // Récupère la date actuelle au format AAAA-MM-JJ.
+  const completed = activities.filter((entry) => entry.date <= today); // Exclut les séances futures des statistiques cumulées.
+  const duration = completed.reduce((sum, entry) => sum + entry.duration, 0); // Additionne la durée de toutes les séances terminées.
+  const distance = completed.reduce((sum, entry) => sum + entry.distance, 0); // Additionne la distance totale parcourue.
+  const calories = completed.reduce((sum, entry) => sum + entry.caloriesBurned, 0); // Additionne les calories brûlées.
+  const activeDays = new Set(completed.map((entry) => entry.date)).size; // Compte les dates distinctes avec au moins une séance.
+  const start = createdAt && createdAt <= today ? createdAt : today; // Évite de compter une période antérieure à l'inscription ou située dans le futur.
+  const daysSinceStart =
+    Math.floor(
+      (new Date(`${today}T00:00:00Z`).getTime() -
+        new Date(`${start}T00:00:00Z`).getTime()) /
+        86_400_000
+    ) + 1; // Convertit l'écart en jours et inclut le jour de départ dans le calcul.
+  return {
+    since: createdAt ? formatDateFrFull(createdAt) : "—", // Affiche la date d'inscription, ou un tiret si elle est inconnue.
+    totalRunTime: {
+      value: `${Math.floor(duration / 60)}h`, // Convertit les minutes totales en nombre d'heures complètes.
+      unit: `${duration % 60}min`, // Présente les minutes restantes après les heures complètes.
+    },
+    totalDistance: { value: distance.toFixed(1), unit: "km" }, // Formate la distance totale avec une décimale.
+    totalSessions: { value: String(completed.length), unit: "sessions" }, // Convertit le nombre de séances terminées en texte.
+    caloriesBurned: { value: calories.toLocaleString("fr-FR"), unit: "cal" }, // Formate les calories selon les conventions françaises.
+    restDays: {
+      value: String(Math.max(0, daysSinceStart - activeDays)), // Estime les jours sans séance et empêche un résultat négatif.
+      unit: "jours de repos", // Précise l'unité de cette statistique.
+    },
+  };
+}
